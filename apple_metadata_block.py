@@ -1,6 +1,15 @@
 import os.path
 import re
 
+__version__ = '0.1.0'
+
+# Static metadata
+import shlex
+
+title = 'KINGDOM'
+title_id = "????"
+facility = "Cinelab Film and Digital, 715 Banbury Avenue, Slough, SL1 7LR, UK"
+
 
 class A001Block:
 
@@ -14,27 +23,35 @@ class A001Block:
         self.cam_rolls = None
 
         # static elements
-        self.title = "KINGDOM"
-        self.title_id = "?"
-        self.facility = "Cinelab Film and Digital, 715 Banbury Avenue, Slough, SL1 7LR, UK"
+        self.title = title
+        self.title_id = title_id
+        self.facility = facility
         self.mhl_date = ""
 
         self.files = []
         self.sizes = []
         self.md5s = []
+        self.tool = ""
 
         self.read_mhl_file()
 
         self.get_unique_elements()
-        self.dictionary = self.generate_dictionary()
+        self.metadata = self.generate_dictionary()
+        self.print_summary()
+        self.save_to_file()
 
     def read_mhl_file(self):
+
+        print("\nReading MHL file... This may take a while for frame-based formats")
 
         with open(self.mhl_file_name, 'r') as mhl_file:
 
             lines = mhl_file.readlines()
 
             for index, line in enumerate(lines):
+
+                if (index / 5) == int(index / 5):
+                    print_progress_bar(index, len(lines))
 
                 if line.strip().startswith("<file>"):
                     self.files.append(strip_xml_tags(line))
@@ -49,38 +66,55 @@ class A001Block:
 
                     self.mhl_date = strip_xml_tags(line)
 
+                elif line.strip().startswith("<tool>"):
+
+                    self.tool = strip_xml_tags(line)
+
+            print_progress_bar(len(lines), len(lines))
+            print("\n")
+
+        if len(self.files) != len(self.sizes) or len(self.files) != len(self.md5s):
+            raise Exception("Files, sizes and md5s are not equal in length")
+
+        if self.mhl_date == "":
+            print("{}No date found in mhl file{}".format(PrintColors.WARNING, PrintColors.ENDC))
+
+        if self.tool == "":
+            print("{}No write software version found in mhl file{}".format(PrintColors.WARNING, PrintColors.ENDC))
+
     # noinspection PyDictCreation
     def generate_dictionary(self):
 
-        dictionary = {}
+        metadata = {}
 
-        dictionary["TITLE"] = self.title
-        dictionary["TITLE ID"] = self.title_id
-        dictionary["FACILITY BARCODE"] = self.facility_barcode(add_version=True)
-        dictionary["FACILITY"] = self.facility
-        dictionary["DATE WRITTEN"] = self.date_written()
-        dictionary["MEDIUM"] = "LTO-7"
-        dictionary["WRITE FORMAT"] = 'LTFS 2.2'
-        dictionary["WRITE VERSION"] = 'MacOS Catalina - YoYotta'
-        dictionary["TOTAL FILES"] = len(self.files) + 4
-        dictionary["TOTAL SIZE"] = total_files_size(self.sizes)
-        dictionary["CONTENT"] = "Digital Picture Source / Dailies"
-        dictionary["DELIVERABLE ID"] = "A001"
-        dictionary["SET ID"] = self.set_id()
-        dictionary["TAPE IN SET"] = '1 of 1'
-        dictionary["MD5 HASH VALUE"] = "N/A"
-        dictionary["FILE FORMAT"] = ', '.join(self.file_formats())
-        dictionary["CAMERA TYPES"] = ', '.join(self.camera_types())
-        dictionary["SHOOT DATE"] = ', '.join(self.shoot_dates())
-        dictionary["SHOOT DAY NUMBER"] = ', '.join(self.shoot_day_numbers())
-        dictionary["CAMERA ROLL NUMBERS / SOUND ROLL NUMBERS"] = ', '.join(self.cam_rolls + self.sound_rolls)
-        dictionary["UNIT REFERENCE"] = ', '.join(self.unit_references())
-        dictionary["PROCESS METADATA"] = 'N/A'
-        dictionary["CAMERA FILE EXTRACTION"] = 'N/A'
-        dictionary["NOTES"] = f"{self.facility_barcode()}.txt (in main directory of LTO) for list of all files. Copy of this txt file has been emailed to Apple Archive. "
-        dictionary["FILES"] = f"{self.facility_barcode()}.txt"
+        metadata["TITLE"] = self.title
+        metadata["TITLE ID"] = self.title_id
+        metadata["FACILITY BARCODE"] = self.facility_barcode(add_version=True)
+        metadata["FACILITY"] = self.facility
+        metadata["DATE WRITTEN"] = self.date_written
+        metadata["MEDIUM"] = "LTO-7"
+        metadata["WRITE FORMAT"] = 'LTFS 2.2'
+        metadata["WRITE VERSION"] = 'MacOS 10.15.7 {}'.format(self.tool)
+        metadata["TOTAL FILES"] = str(len(self.files) + 4)
+        metadata["TOTAL SIZE"] = total_files_size(self.sizes)
+        metadata["CONTENT"] = "Digital Picture Source / Dailies"
+        metadata["DELIVERABLE ID"] = "A001"
+        metadata["SET ID"] = self.set_id
+        metadata["TAPE IN SET"] = '1 of 1'
+        metadata["MD5 HASH VALUE"] = "N/A"
+        metadata["FILE FORMAT"] = ', '.join(self.file_formats())
+        metadata["CAMERA TYPES"] = ', '.join(self.camera_types())
+        metadata["SHOOT DATE"] = ', '.join(self.shoot_dates())
+        metadata["SHOOT DAY NUMBER"] = ', '.join(self.shoot_day_numbers())
+        metadata["CAMERA ROLL NUMBERS / SOUND ROLL NUMBERS"] = ', '.join(self.cam_rolls + self.sound_rolls)
+        metadata["UNIT REFERENCE"] = ', '.join(self.unit_references())
+        metadata["PROCESS METADATA"] = 'N/A'
+        metadata["CAMERA FILE EXTRACTION"] = 'N/A'
+        metadata["NOTES"] = f"{self.facility_barcode()}.txt (in main directory of LTO) for list of all files. Copy " \
+                            f"of this txt file has been emailed to Apple Archive. "
+        metadata["FILES"] = f"{self.facility_barcode()}.txt"
 
-        return dictionary
+        return metadata
 
     def facility_barcode(self, add_version=False):
 
@@ -91,12 +125,14 @@ class A001Block:
         else:
             return barcode.replace(".mhl", "")
 
+    @property
     def date_written(self):
 
         date = self.mhl_date[0:10]
         date = mil_date_to_date(date)
         return '/'.join(date)
 
+    @property
     def set_id(self):
 
         tape = self.facility_barcode()
@@ -124,7 +160,7 @@ class A001Block:
             file_path_split = file.split("/")
 
             shoot_day_dates.append(file_path_split[4])
-            if file_path_split[5] == "Camera_Media":
+            if file_path_split[5] == "Camera_Media" or file_path_split[5] == "Mezzanine":
                 cam_rolls.append(file_path_split[6])
             elif file_path_split[5] == "Sound_Media":
                 sound_rolls.append(file_path_split[6])
@@ -185,8 +221,7 @@ class A001Block:
             "mxf": "OTHER",
             "dng": "OTHER",
             "mov": "OTHER",
-            "mp4": "OTHER",
-            "wav": "OTHER"
+            "mp4": "OTHER"
         }
 
         file_types = self.file_formats()
@@ -205,6 +240,30 @@ class A001Block:
                                                                                         PrintColors.ENDC))
 
         return camera_types
+
+    def print_summary(self):
+
+        print('\n')
+        print("{}Metadata Block{}".format(PrintColors.UNDERLINE, PrintColors.ENDC))
+
+        for key, value in self.metadata.items():
+            print("{}{}{}: {}".format(PrintColors.OKBLUE, key, PrintColors.ENDC, value))
+
+    def save_to_file(self):
+
+        breaks_after = ["TOTAL SIZE", "CAMERA FILE EXTRACTION", "NOTES", 'FILES']
+
+        filename = os.path.abspath(self.mhl_file_name)
+        filename = os.path.dirname(filename)
+        filename = os.path.join(filename, f'{self.title}_A001_{self.facility_barcode(add_version=True)}_METADATA.txt')
+
+        with open(filename, "w") as f:
+            for key, value in self.metadata.items():
+
+                f.write("{}: {}\n".format(key, value))
+
+                if key in breaks_after:
+                    f.write("\n")
 
 
 def mil_date_to_date(mil_date):
@@ -247,15 +306,36 @@ class PrintColors:
     UNDERLINE = '\033[4m'
 
 
-def progress_bar(iteration, total, prefix='', suffix='', decimals=1, length=100, fill='█'):
-    bar = fill * int(length * iteration // total)
-    suffix = ' ' + suffix
+def print_progress_bar(iteration, total, prefix='', suffix='', length=50, fill='#'):
+    percent = iteration / total * 100
+    bar_count = (int(length * (iteration / total)))
+    empty_count = length - bar_count
+    bar = (fill * bar_count) + " " * empty_count
 
-    print('\r{} [{}]  {}'.format(prefix, bar, suffix), end="")
+    print(f'\r{prefix}|{bar}| {round(percent)}% complete {suffix}', end="", flush=True)
 
 
 if __name__ == "__main__":
-    block = A001Block("sample_data/MQ0292.mhl")
 
-    for key, value in block.dictionary.items():
-        print(f'{PrintColors.OKGREEN}{key}{PrintColors.ENDC}: {value}')
+    print("{}Apple Metadata Block Generator{}".format(PrintColors.UNDERLINE, PrintColors.ENDC))
+    print("Version: {} {}".format(__version__, title))
+
+    filenames = input("Drop tape MHLs here...")
+
+    filenames = shlex.split(filenames)
+    filenames = [filename for filename in filenames if re.search(r'[mM][hH][lL]$', filename)]
+
+    # Check validity of files
+    valid_filenames = []
+    for filename in filenames:
+
+        if os.path.isfile(filename):
+            valid_filenames.append(filename)
+
+    print("\nFound", str(len(valid_filenames)))
+    print("\n".join(valid_filenames))
+
+    for filename in valid_filenames:
+        A001Block(filename)
+
+    print("\nDone!")
