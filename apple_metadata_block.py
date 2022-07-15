@@ -5,21 +5,18 @@ import re
 class AppleMetadataBlockConfig:
 
     def __init__(self, project):
-
         self.project = project
+
+        self.template = ""
+        self.format_map = ""
+
         self.load_preset_from_file()
 
-        self.day_level = 3
-        self.type_level = 4
-        self.roll_level = 5
-
     def load_preset_from_file(self):
-
         if not os.path.isfile(f'presets/{self.project}.txt'):
             raise Exception(f'Preset file {self.project}.txt does not exist')
 
         with open(f'presets/{self.project}.txt', 'r') as file_handler:
-
             file_content = file_handler.read()
 
             template, format_map = file_content.split("<FORMAT MAPPING>")
@@ -41,8 +38,6 @@ class AppleMetadataBlock:
 
     def __init__(self, mhl_file_path):
 
-        self.config = AppleMetadataBlockConfig()
-
         self.mhl_file_path = mhl_file_path
         self.files_dictionary = {}
 
@@ -50,13 +45,19 @@ class AppleMetadataBlock:
         self.camroll_elements = []
         self.soundroll_elements = []
 
+        self.day_level = 3
+        self.type_level = 4
+        self.roll_level = 5
+
         self.load_mhl_file()
 
         self.get_unique_elements()
 
-        self.load_config()
+        self.config = self.load_config()
 
         self.facility_barcode = self.get_barcode()
+
+        self.days, self.dates, self.units = self.get_days_dates_units()
 
         print('Days: ' + str(self.day_elements))
         print('Camrolls: ' + str(self.camroll_elements))
@@ -65,6 +66,9 @@ class AppleMetadataBlock:
         print('Total size: ' + calculate_size_total(self.files_dictionary.values()))
 
     def load_mhl_file(self):
+
+        print(f'Loading {self.mhl_file_path}')
+
         with open(self.mhl_file_path, 'r') as file_handler:
 
             lines = file_handler.readlines()
@@ -94,22 +98,22 @@ class AppleMetadataBlock:
 
             path_split = path.split('/')
 
-            if path_split[self.config.day_level] not in self.day_elements:
-                self.day_elements.append(path_split[self.config.day_level])
+            if path_split[self.day_level] not in self.day_elements:
+                self.day_elements.append(path_split[self.day_level])
 
-            if path_split[self.config.roll_level] not in (self.camroll_elements + self.soundroll_elements):
+            if path_split[self.roll_level] not in (self.camroll_elements + self.soundroll_elements):
 
-                if path_split[self.config.type_level] == "CAMERA":
-                    self.camroll_elements.append(path_split[self.config.roll_level])
-                elif path_split[self.config.type_level] == "SOUND":
-                    self.soundroll_elements.append(path_split[self.config.roll_level])
+                if path_split[self.type_level] == "CAMERA":
+                    self.camroll_elements.append(path_split[self.roll_level])
+                elif path_split[self.type_level] == "SOUND":
+                    self.soundroll_elements.append(path_split[self.roll_level])
 
     def load_config(self):
 
         project = self.day_elements[0].split('_')[1]
         print("Project", project)
 
-        AppleMetadataBlock(project)
+        return AppleMetadataBlockConfig(project)
 
     def get_barcode(self):
 
@@ -120,6 +124,46 @@ class AppleMetadataBlock:
 
         else:
             raise Exception(f'Invalid barcode {barcode}')
+
+    def get_days_dates_units(self):
+
+        days = []
+        dates = []
+        units = []
+
+        for entry in self.day_elements:
+
+            day_date = entry.split('_')[-1]
+
+            date = day_date.split('-')[0]
+            day = day_date.split('-')[1]
+            unit = day[0:2]
+
+            if day not in days:
+                days.append(day)
+
+            if date not in dates:
+                dates.append(date)
+
+            if unit not in units:
+                units.append(unit)
+
+        for x in units:
+            if x == 'MU':
+                units.remove(x)
+                units.append('Main Unit')
+
+            if x == '2U':
+                units.remove(x)
+                units.append('Second Unit')
+
+            if x == 'SU':
+                units.remove(x)
+                units.append('Splinter Unit')
+
+        print(days, dates, units)
+
+        return days, dates, units
 
 
 if __name__ == "__main__":
