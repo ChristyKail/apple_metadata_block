@@ -45,6 +45,8 @@ class AppleMetadataBlock:
         self.camroll_elements = []
         self.soundroll_elements = []
 
+        self.date_written = ""
+
         self.day_level = 3
         self.type_level = 4
         self.roll_level = 5
@@ -80,6 +82,10 @@ class AppleMetadataBlock:
 
                 line = line.strip()
 
+                if line.startswith('<startdate>'):
+                    self.date_written = line.split('>')[1].split('T')[0]
+                    print(f'Date written: {mil_date_to_us_date(self.date_written)}')
+
                 if line.startswith('<file>'):
 
                     path = line.split('<file>')[1].split('</file>')[0]
@@ -107,6 +113,10 @@ class AppleMetadataBlock:
                     self.camroll_elements.append(path_split[self.roll_level])
                 elif path_split[self.type_level] == "SOUND":
                     self.soundroll_elements.append(path_split[self.roll_level])
+
+        self.day_elements.sort()
+        self.camroll_elements.sort()
+        self.soundroll_elements.sort()
 
     def load_config(self):
 
@@ -164,6 +174,22 @@ class AppleMetadataBlock:
         print(days, dates, units)
 
         return days, dates, units
+
+    def compile_block(self):
+
+        block = self.config.template
+
+        block = block.replace('{BARCODE}', self.facility_barcode)
+        block = block.replace('{DATE}', self.date_written)
+
+        return block
+
+
+def mil_date_to_us_date(date):
+
+    year, month, day = date.split("-")
+
+    return f"{month}/{day}/{year}"
 
 
 if __name__ == "__main__":
