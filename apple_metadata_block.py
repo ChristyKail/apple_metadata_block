@@ -40,10 +40,15 @@ class AppleMetadataBlock:
 
         self.mhl_file_path = mhl_file_path
         self.files_dictionary = {}
+        self.software = ""
 
         self.day_elements = []
         self.camroll_elements = []
         self.soundroll_elements = []
+        self.file_formats = ["mhl", "txt", "md5"]
+
+        self.camera_types = []
+        self.camera_formats = []
 
         self.date_written = ""
 
@@ -61,11 +66,15 @@ class AppleMetadataBlock:
 
         self.days, self.dates, self.units = self.get_days_dates_units()
 
+        self.map_formats()
+
         print('Days: ' + str(self.day_elements))
         print('Camrolls: ' + str(self.camroll_elements))
         print('Soundrolls: ' + str(self.soundroll_elements))
 
         print('Total size: ' + calculate_size_total(self.files_dictionary.values()))
+
+        self.compile_block()
 
     def load_mhl_file(self):
 
@@ -83,8 +92,7 @@ class AppleMetadataBlock:
                 line = line.strip()
 
                 if line.startswith('<startdate>'):
-                    self.date_written = line.split('>')[1].split('T')[0]
-                    print(f'Date written: {mil_date_to_us_date(self.date_written)}')
+                    self.date_written = mil_date_to_us_date(line.split('>')[1].split('T')[0])
 
                 if line.startswith('<file>'):
 
@@ -98,11 +106,18 @@ class AppleMetadataBlock:
 
                     self.files_dictionary[path] = size
 
+                elif line.startswith('<tool>'):
+
+                    self.software = line.split('<tool>')[1].split('</tool>')[0]
+
     def get_unique_elements(self):
 
         for index, path in enumerate(self.files_dictionary.keys()):
 
             path_split = path.split('/')
+
+            if path_split[-1].split('.')[-1].lower() not in self.file_formats:
+                self.file_formats.append(path_split[-1].split('.')[-1].lower())
 
             if path_split[self.day_level] not in self.day_elements:
                 self.day_elements.append(path_split[self.day_level])
@@ -117,6 +132,7 @@ class AppleMetadataBlock:
         self.day_elements.sort()
         self.camroll_elements.sort()
         self.soundroll_elements.sort()
+        self.file_formats.sort()
 
     def load_config(self):
 
@@ -135,6 +151,17 @@ class AppleMetadataBlock:
         else:
             raise Exception(f'Invalid barcode {barcode}')
 
+    def set_id(self):
+
+        tape_last_digit = int(self.facility_barcode[-1])
+
+        print(f'Tape last digit: {tape_last_digit}')
+
+        if tape_last_digit % 2 == 1:
+            return "A"
+        else:
+            return "B"
+
     def get_days_dates_units(self):
 
         days = []
@@ -145,7 +172,7 @@ class AppleMetadataBlock:
 
             day_date = entry.split('_')[-1]
 
-            date = day_date.split('-')[0]
+            date = mil_date_to_us_date(day_date.split('-')[0])
             day = day_date.split('-')[1]
             unit = day[0:2]
 
@@ -175,19 +202,78 @@ class AppleMetadataBlock:
 
         return days, dates, units
 
+    def tape_in_set(self):
+
+        tape = self.facility_barcode
+        tape_last_digit = int(self.facility_barcode[-1])
+
+        if self.set_id() == "A":
+
+            tape_set = int((tape_last_digit + 1) / 2)
+        else:
+            tape_set = int((tape_last_digit / 2))
+
+        return f'{int(tape_set)}'
+
+    def map_formats(self):
+
+        formats_dict = {}
+
+        for line in self.config.format_map.split('\n'):
+            line_split = line.split(',')
+
+            formats_dict[line_split[0]] = [line_split[1], line_split[2]]
+
+        print(formats_dict)
+
+        for camera in self.camroll_elements:
+            for format_regex in formats_dict.keys():
+                if re.match(format_regex, camera):
+                    self.camera_types.append(formats_dict[format_regex][0])
+                    self.camera_formats.append(formats_dict[format_regex][1])
+
+#       remove duplicates
+        self.camera_types = list(set(self.camera_types))
+        self.camera_formats = list(set(self.camera_formats))
+
     def compile_block(self):
 
         block = self.config.template
 
+        block = block.replace('{SOFTWARE}', self.software)
         block = block.replace('{BARCODE}', self.facility_barcode)
+
+        block = block.replace('{SETID}', self.set_id())
+
+        block = block.replace('{TAPEINSET}', self.tape_in_set())
+
         block = block.replace('{DATE}', self.date_written)
+        block = block.replace('{TOTALFILES}', str(len(self.files_dictionary)))
+        block = block.replace('{TOTALSIZE}', calculate_size_total(self.files_dictionary.values()))
+
+        block = block.replace('{CAMERASOUNDROLLNUMBERS}', ', '.join(self.camroll_elements + self.soundroll_elements))
+        block = block.replace('{FILEFORMAT}', ', '.join(self.file_formats))
+        block = block.replace('{SHOOTDAYNUMBER}', ', '.join(self.days))
+        block = block.replace('{SHOOTDATE}', ', '.join(self.dates))
+        block = block.replace('{UNITREFERENCE}', ', '.join(self.units))
+
+        block = block.replace('{CAMERATYPES}', ', '.join(self.camera_types))
+        block = block.replace('{CAMERAFILEEXTRACTION}', ', '.join(self.camera_formats))
+
+        block = block.replace('{CAMERASOUND}', ', '.join(self.camroll_elements))
+
+        print("----------------------------------------------------")
+        print(block)
 
         return block
 
-
 def mil_date_to_us_date(date):
-
-    year, month, day = date.split("-")
+    if "-" in date:
+        year, month, day = date.split("-")
+    else:
+        year = date[0:4]
+        month = date[4:6]
+        day = date[6:8]
 
     return f"{month}/{day}/{year}"
 
