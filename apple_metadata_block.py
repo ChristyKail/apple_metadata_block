@@ -1,6 +1,10 @@
 import os.path
 import re
 
+__version__ = "2.0.0"
+
+import shlex
+
 
 class AppleMetadataBlockConfig:
 
@@ -41,6 +45,7 @@ class AppleMetadataBlock:
         self.mhl_file_path = mhl_file_path
         self.files_dictionary = {}
         self.software = ""
+        self.project = ""
 
         self.day_elements = []
         self.camroll_elements = []
@@ -55,6 +60,8 @@ class AppleMetadataBlock:
         self.day_level = 3
         self.type_level = 4
         self.roll_level = 5
+
+        self.manual_fix = False
 
         self.load_mhl_file()
 
@@ -75,10 +82,9 @@ class AppleMetadataBlock:
         print('Total size: ' + calculate_size_total(self.files_dictionary.values()))
 
         self.compile_block()
+        self.write_block()
 
     def load_mhl_file(self):
-
-        print(f'Loading {self.mhl_file_path}')
 
         with open(self.mhl_file_path, 'r') as file_handler:
 
@@ -136,10 +142,9 @@ class AppleMetadataBlock:
 
     def load_config(self):
 
-        project = self.day_elements[0].split('_')[1]
-        print("Project", project)
+        self.project = self.day_elements[0].split('_')[1]
 
-        return AppleMetadataBlockConfig(project)
+        return AppleMetadataBlockConfig(self.project)
 
     def get_barcode(self):
 
@@ -155,8 +160,6 @@ class AppleMetadataBlock:
 
         tape_last_digit = int(self.facility_barcode[-1])
 
-        print(f'Tape last digit: {tape_last_digit}')
-
         if tape_last_digit % 2 == 1:
             return "A"
         else:
@@ -167,44 +170,53 @@ class AppleMetadataBlock:
         days = []
         dates = []
         units = []
+        unit_names = []
 
-        for entry in self.day_elements:
+        try:
 
-            day_date = entry.split('_')[-1]
+            for entry in self.day_elements:
 
-            date = mil_date_to_us_date(day_date.split('-')[0])
-            day = day_date.split('-')[1]
-            unit = day[0:2]
+                day_date = entry.split('_')[-1]
 
-            if day not in days:
-                days.append(day)
+                date = mil_date_to_us_date(re.findall(r'\d{8}', entry)[0])
+                if date not in dates:
+                    dates.append(date)
 
-            if date not in dates:
-                dates.append(date)
+                day = day_date.split('-')[1]
+                if day not in days:
+                    days.append(day)
 
-            if unit not in units:
-                units.append(unit)
+                unit = day[0:2]
+                if unit not in units:
+                    units.append(unit)
+
+        except IndexError:
+            print('Non-standard day')
+            self.manual_fix = True
 
         for x in units:
             if x == 'MU':
-                units.remove(x)
-                units.append('Main Unit')
+                unit_names.append('Main Unit')
 
-            if x == '2U':
-                units.remove(x)
-                units.append('Second Unit')
+            elif x == '2U':
+                unit_names.append('Second Unit')
 
-            if x == 'SU':
-                units.remove(x)
-                units.append('Splinter Unit')
+            elif x == 'SU':
+                unit_names.append('Splinter Unit')
+
+            elif x == 'TE':
+                unit_names.append('Tests')
+
+            else:
+                print('Unknown unit: ' + x)
+                self.manual_fix = True
 
         print(days, dates, units)
 
-        return days, dates, units
+        return days, dates, unit_names
 
     def tape_in_set(self):
 
-        tape = self.facility_barcode
         tape_last_digit = int(self.facility_barcode[-1])
 
         if self.set_id() == "A":
@@ -224,17 +236,23 @@ class AppleMetadataBlock:
 
             formats_dict[line_split[0]] = [line_split[1], line_split[2]]
 
-        print(formats_dict)
-
         for camera in self.camroll_elements:
+            camera_detected = False
             for format_regex in formats_dict.keys():
                 if re.match(format_regex, camera):
                     self.camera_types.append(formats_dict[format_regex][0])
                     self.camera_formats.append(formats_dict[format_regex][1])
+                    camera_detected = True
+            if not camera_detected:
+                print(f'Camera format not detected: {camera}')
+                self.manual_fix = True
 
-#       remove duplicates
+        # remove duplicates
         self.camera_types = list(set(self.camera_types))
         self.camera_formats = list(set(self.camera_formats))
+
+        self.camera_types.sort()
+        self.camera_formats.sort()
 
     def compile_block(self):
 
@@ -262,12 +280,27 @@ class AppleMetadataBlock:
 
         block = block.replace('{CAMERASOUND}', ', '.join(self.camroll_elements))
 
-        print("----------------------------------------------------")
-        print(block)
-
         return block
 
+    def write_block(self):
+
+        block = self.compile_block()
+
+        if self.manual_fix:
+            manual_fix = " - Manual Fix"
+        else:
+            manual_fix = ""
+
+        output_filename = f'{self.project}_A001_{self.facility_barcode}L7_METADATA{manual_fix}.txt'
+
+        output_file = os.path.dirname(self.mhl_file_path) + '/' + output_filename
+
+        with open(output_file, 'w') as f:
+            f.write(block)
+
+
 def mil_date_to_us_date(date):
+
     if "-" in date:
         year, month, day = date.split("-")
     else:
@@ -279,4 +312,19 @@ def mil_date_to_us_date(date):
 
 
 if __name__ == "__main__":
-    AppleMetadataBlock("sample_data/KD0097.mhl")
+    print(f"Apple Metadata Block Generator {__version__}")
+    filenames = input("Drop tape MHLs here...")
+    filenames = shlex.split(filenames)
+
+    for filename in filenames:
+
+        if os.path.isfile(filename) and filename.endswith('.mhl'):
+            print(f"Processing {os.path.basename(filename)}")
+            AppleMetadataBlock(filename)
+
+        elif os.path.isdir(filename):
+            print(f"Processing folder {os.path.basename(filename)}")
+            for filename_in_folder in os.listdir(filename):
+                if filename_in_folder.endswith('.mhl'):
+                    print(f"Processing {os.path.basename(filename_in_folder)}")
+                    AppleMetadataBlock(filename + '/' + filename_in_folder)

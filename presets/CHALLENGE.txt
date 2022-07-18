@@ -4,8 +4,8 @@ FACILITY BARCODE: {BARCODE}L7
 FACILITY: Cinelab Film and Digital, 715 Banbury Avenue, Slough, SL1 7LR, UK
 DATE WRITTEN: {DATE}
 MEDIUM: LTO-7
-WRITE FORMAT: LTFS 2.2
-WRITE VERSION: MacOS Catalina - {SOFTWARE}
+WRITE FORMAT: LTFS 2.4.0
+WRITE VERSION: MacOS 10.15.7 - {SOFTWARE}
 TOTAL FILES: {TOTALFILES}
 TOTAL SIZE: {TOTALSIZE}
 
@@ -27,9 +27,7 @@ NOTES: {BARCODE}.txt (in main directory of LTO) for list of all files. Copy of t
 FILES: {BARCODE}.txt
 
 <FORMAT MAPPING>
-^A\d{3},ALEXA,ARRIRAW (hde)
-^B\d{3},ALEXA,ARRIRAW (hde)
-^C\d{3},ALEXA,ARRIRAW (hde)
-^D\d{3},DJI,ProRes
-^WEB,Webcam,ProRes
-^CCTV,CCTV,ProRes
+^[ABC]\d{3}R\w{3}$,ALEXA,ARRIRAW (hde)
+^X\d{3}$,Sony A7S2,XAVC-S
+^[GI]\d{3}$,iPhone,H264
+^[GI]\d{3}_mezz$,iPhone,ProRes 422HQ Mezzanine
